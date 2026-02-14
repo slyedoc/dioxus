@@ -1115,6 +1115,8 @@ impl BuildRequest {
                 self.write_frameworks(ctx, &artifacts)
                     .await
                     .context("Failed to write frameworks")?;
+                self.write_native_libs_from_target_dir(&artifacts)
+                    .context("Failed to write native libs from target dir")?;
                 self.write_assets(ctx, &artifacts.assets)
                     .await
                     .context("Failed to write assets")?;
@@ -2173,6 +2175,56 @@ impl BuildRequest {
                 std::fs::copy(&libcrypto_source, &libcrypto_target).with_context(
                     || format!("Failed to copy libcrypto.so into bundle\nfrom {libcrypto_source:?}\nto {libcrypto_target:?}"),
                 )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copy/symlink native shared libraries from the cargo target directory into the app bundle.
+    ///
+    /// Build scripts (e.g. ort's `copy_dylibs`) may place .so/.dylib files directly in the cargo
+    /// target directory. These don't appear in the linker args so `write_frameworks` misses them.
+    /// Without this, the app binary can't find them at runtime even with $ORIGIN rpath set.
+    fn write_native_libs_from_target_dir(&self, artifacts: &BuildArtifacts) -> Result<()> {
+        let Some(target_dir) = artifacts.exe.parent() else {
+            return Ok(());
+        };
+
+        let app_dir = self.exe_dir();
+        _ = std::fs::create_dir_all(&app_dir);
+
+        let entries = match std::fs::read_dir(target_dir) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(()),
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy();
+            if !name.ends_with(".so") && !name.ends_with(".dylib") {
+                continue;
+            }
+
+            let dest = app_dir.join(path.file_name().unwrap());
+            if dest.exists() || dest.symlink_metadata().is_ok() {
+                continue;
+            }
+
+            tracing::debug!("Copying native lib from {path:?} to {dest:?}");
+
+            if cfg!(any(windows, unix)) && !self.release {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&path, &dest).with_context(|| {
+                    format!(
+                        "Failed to symlink native lib into bundle: {path:?} -> {dest:?}"
+                    )
+                })?;
+            } else {
+                std::fs::copy(&path, &dest)?;
             }
         }
 
