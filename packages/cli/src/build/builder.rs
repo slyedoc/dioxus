@@ -563,6 +563,15 @@ impl AppBuilder {
             ),
         ];
 
+        // Apply [env] vars from .cargo/config.toml to the runtime process
+        for (key, env_config) in &krate.cargo_env {
+            if env_config.force || std::env::var_os(key).is_none() {
+                if let Some(val) = env_config.value.to_str() {
+                    envs.push((key.clone(), val.to_string()));
+                }
+            }
+        }
+
         if let Some(devserver_ip) = devserver_ip {
             envs.push((
                 dioxus_cli_config::DEVSERVER_IP_ENV.into(),
