@@ -931,26 +931,8 @@ impl AppBuilder {
     /// paths right now, but they will when we start to enable things like swift integration.
     ///
     /// Server/liveview/desktop are all basically the same, though
-    fn open_with_main_exe(&mut self, mut envs: Vec<(String, String)>, args: &[String]) -> Result<()> {
+    fn open_with_main_exe(&mut self, envs: Vec<(String, String)>, args: &[String]) -> Result<()> {
         let main_exe = self.app_exe();
-
-        // Add the exe's directory to the library search path so shared libs placed
-        // alongside the binary (e.g. onnxruntime providers) can be found at runtime.
-        // This matches what `cargo run` does automatically.
-        if let Some(exe_dir) = main_exe.parent() {
-            let lib_path_key = if cfg!(target_os = "macos") {
-                "DYLD_LIBRARY_PATH"
-            } else {
-                "LD_LIBRARY_PATH"
-            };
-            let existing = std::env::var(lib_path_key).unwrap_or_default();
-            let new_path = if existing.is_empty() {
-                exe_dir.display().to_string()
-            } else {
-                format!("{}:{existing}", exe_dir.display())
-            };
-            envs.push((lib_path_key.into(), new_path));
-        }
 
         tracing::debug!("Opening app with main exe: {main_exe:?}");
 
