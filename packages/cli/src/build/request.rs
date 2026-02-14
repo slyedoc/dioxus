@@ -402,6 +402,7 @@ pub(crate) struct BuildRequest {
     pub(crate) session_cache_dir: PathBuf,
     pub(crate) raw_json_diagnostics: bool,
     pub(crate) windows_subsystem: Option<String>,
+    pub(crate) cargo_env: std::collections::BTreeMap<String, cargo_config2::EnvConfigValue>,
 }
 
 /// dx can produce different "modes" of a build. A "regular" build is a "base" build. The Fat and Thin
@@ -962,6 +963,8 @@ impl BuildRequest {
             );
         }
 
+        let cargo_env = cargo_config.env.clone();
+
         let target_dir = std::env::var("CARGO_TARGET_DIR")
             .ok()
             .map(PathBuf::from)
@@ -1040,6 +1043,7 @@ impl BuildRequest {
             apple_team_id: args.apple_team_id.clone(),
             raw_json_diagnostics: args.raw_json_diagnostics,
             windows_subsystem: args.windows_subsystem.clone(),
+            cargo_env,
         })
     }
 
@@ -3599,6 +3603,14 @@ impl BuildRequest {
         build_mode: &BuildMode,
     ) -> Result<Vec<(Cow<'static, str>, OsString)>> {
         let mut env_vars = vec![];
+
+        // Apply [env] vars from .cargo/config.toml
+        // Per Cargo semantics: set if not already in the environment, unless force = true
+        for (key, env_config) in &self.cargo_env {
+            if env_config.force || std::env::var_os(key).is_none() {
+                env_vars.push((Cow::Owned(key.clone()), env_config.value.clone()));
+            }
+        }
 
         // Make sure to set all the crazy android flags. Cross-compiling is hard, man.
         if self.bundle == BundleFormat::Android {
